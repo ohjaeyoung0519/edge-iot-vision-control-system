@@ -52,7 +52,7 @@ ESP32 Control Node
 
 - [x] Hardware ordered
 - [x] Raspberry Pi received
-- [ ] ESP32 received
+- [x] ESP32 received
 - [ ] Raspberry Pi OS setup
 - [ ] ESP32 development environment setup
 - [ ] Servo motor control test
