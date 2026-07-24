@@ -3,7 +3,7 @@
 | Component | Quantity | Purpose | Status |
 |---|---:|---|---|
 | Raspberry Pi 5 8GB | 1 | Central server | Received |
-| ESP32-DEVKITC-32E | 3 | Wireless control nodes | Pending |
+| ESP32-DEVKITC-32E | 3 | Wireless control nodes | Received |
 | SG90 Servo Motor | 1 | Basic servo test | Received |
 | MG90S Servo Motor | 1 | Stronger servo test | Received |
 | 5V 5A DC Adapter | 1 | External servo power | Received |
