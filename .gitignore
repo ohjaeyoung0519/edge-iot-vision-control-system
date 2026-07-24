@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+.env
+
+# VS Code
+.vscode/
+
+# PlatformIO
+.pio/
+
+# Secrets
+secrets.h
+config.json
+wifi_config.py
+*.key
+*.pem
+
+# Large media files
+*.mp4
+*.mov
+*.avi
