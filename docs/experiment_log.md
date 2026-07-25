@@ -16,7 +16,7 @@ GitHub 저장소 기본 구조를 만들고 README 작성함.
 
 Raspberry Pi OS 설치 및 SSH 접속 테스트
 
-## 2026-07-26
+## 2026-07-25
 
 ### 작업 내용
 Raspberry Pi Imager를 사용해 Raspberry Pi OS 64-bit를 microSD 카드에 설치함.
