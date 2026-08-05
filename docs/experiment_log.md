@@ -191,3 +191,41 @@ LDR 조도센서 테스트에서는 조도 변화에 따라 raw analog value가 
 새 SG90 서보모터가 도착하면 동일한 외부 5V 전원 및 공통 GND 구성에서 정상 동작 여부를 확인함. 이후 SG90은 PC 전원 버튼 제어용으로, MG90S는 방 불 스위치와 같이 더 큰 힘이 필요한 제어 대상으로 사용하는 방향을 검토함.
 
 LDR 조도센서는 PC 전원 LED 앞에 배치하여 PC OFF 상태와 ON 상태의 raw value를 측정함. 주변광 영향을 줄이기 위해 검정 테이프나 차광 구조를 사용하고, PC 전원 상태 판단에 사용할 threshold 값을 다시 설정함.
+
+## 2026-08-05
+
+### 작업 내용
+ESP32, MG90S 서보모터, LDR 조도센서를 이용하여 서보모터 반복 동작 안정성 및 센서 측정 실험을 진행함. MG90S 서보모터는 외부 5V 전원으로 구동하였고, ESP32와 외부 전원 GND를 공통으로 연결하여 PWM 신호의 기준 전위를 맞춤. LDR 조도센서는 ESP32의 3.3V 전원과 GPIO34 ADC 입력에 연결함.
+
+### 실험 구성
+- 제어 보드: ESP32
+- 서보모터: MG90S
+- 서보모터 제어 핀: GPIO18
+- 조도센서 입력 핀: GPIO34
+- 서보모터 전원: 외부 5V 전원
+- 공통 GND: 외부 5V GND, ESP32 GND, 서보모터 GND, LDR GND
+- 실험 시간: 10분
+- 동작 조건: 60도 → 90도 → 120도 → 90도 반복
+
+### 측정 결과
+10분간 반복 동작 실험을 수행한 결과, 총 172회의 서보모터 동작이 정상적으로 수행됨. 실험 중 ESP32 재부팅이나 서보모터 동작 실패는 관찰되지 않음.
+
+ESP32 free heap은 초기 330252 bytes에서 최종 329648 bytes로 변화하였다. 반복 동작 중 각 trial의 heap_diff는 0으로 유지되어, 실험 중 메모리 사용량이 지속적으로 증가하는 현상은 관찰되지 않음.
+
+MG90S 서보모터 외부 케이스 표면 온도는 시작 전 26.5℃, 5분 후 27.6℃, 10분 후 27.8℃로 측정됨. 10분 반복 동작 후 온도 상승폭은 약 1.3℃였으며, 과열은 관찰되지 않음.
+
+### 데이터 파일
+- Raw serial log: `data/raw/servo_ldr_measurement_10min_raw_log.txt`
+- Cleaned measurement data: `data/processed/servo_ldr_measurement_10min_clean.csv`
+- Servo/LDR summary: `data/processed/servo_ldr_measurement_summary.csv`
+- Temperature summary: `data/processed/mg90s_temperature_summary.csv`
+
+### 이미지 파일
+- 실험 구성 사진: `images/hardware/servo_ldr_measurement_setup.jpg`
+- 시작 전 온도 측정: `images/results/mg90s_temperature_before.jpg`
+- 5분 후 온도 측정: `images/results/mg90s_temperature_5min.jpg`
+- 10분 후 온도 측정: `images/results/mg90s_temperature_10min.jpg`
+- Serial Monitor 캡처: `images/results/servo_ldr_measurement_serial_monitor.png`
+
+### 결과 해석
+MG90S 서보모터는 외부 5V 전원과 공통 GND 구성에서 10분간 안정적으로 반복 동작함. 실험 중 ESP32 재부팅, 서보모터 동작 실패, 급격한 온도 상승은 발생하지 않음. 이를 통해 ESP32 기반 서보모터 제어가 기본적인 반복 동작 환경에서 안정적으로 수행됨을 확인함.

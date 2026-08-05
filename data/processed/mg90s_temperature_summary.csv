@@ -1,0 +1,4 @@
+﻿elapsed_s,time_point,temperature_c,note
+0,before_test,26.5,before starting repeated servo movement
+300,after_5min,27.6,about 5 minutes after start
+600,after_10min,27.8,about 10 minutes after start
