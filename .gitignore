@@ -25,3 +25,6 @@ wifi_config.py
 *.mp4
 *.mov
 *.avi
+
+wifi_config.h
+**/wifi_config.h
