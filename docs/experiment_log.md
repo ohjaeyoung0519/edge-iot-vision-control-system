@@ -230,3 +230,86 @@ MG90S 서보모터 외부 케이스 표면 온도는 시작 전 26.5℃, 5분 �
 ### 결과 해석
 MG90S 서보모터는 외부 5V 전원과 공통 GND 구성에서 10분간 안정적으로 반복 동작함. 실험 중 ESP32 재부팅, 서보모터 동작 실패, 급격한 온도 상승은 발생하지 않음. 이를 통해 ESP32 기반 서보모터 제어가 기본적인 반복 동작 환경에서 안정적으로 수행됨을 확인함.
 
+## 2026-08-06
+
+### 작업 내용
+ESP32 기반 방 불 스위치 제어 노드와 PC 전원 제어 노드를 Raspberry Pi Flask 서버의 통합 Dashboard에 연결함. 기존에는 ESP32 단독 웹 UI 또는 개별 API를 통해 노드를 제어하였으나, 이번 작업에서는 Raspberry Pi가 중앙 서버 역할을 하면서 두 개의 ESP32 노드를 하나의 웹 대시보드에서 제어할 수 있도록 구성함.
+
+방 불 스위치 제어 노드는 ESP32와 MG90S 서보모터를 사용하여 실제 벽면 스위치의 ON/OFF 제어를 시도함. ESP32는 HTTP server를 실행하고, `/api/light/on`, `/api/light/off`, `/api/status`, `/api/servo/rest` endpoint를 통해 Raspberry Pi 또는 브라우저에서 명령을 받을 수 있도록 구현함.
+
+PC 전원 제어 노드는 ESP32, LDR 조도센서, 서보모터를 사용하여 PC 전원 LED 상태를 감지하고, 필요할 때만 서보모터로 PC 전원 버튼을 누르도록 구현함. LDR 센서는 PC 전원 LED 근처에 배치하였고, 서보모터는 PC 전원 버튼을 물리적으로 누를 수 있도록 고정함.
+
+Raspberry Pi Flask 서버의 `app.py`를 수정하여 방 불 스위치 제어 카드와 PC 전원 제어 카드를 하나의 Dashboard에 통합함. PC 전원 제어에서는 Raspberry Pi가 PC에 ping을 보내는 방식과 ESP32의 LDR 센서 값을 함께 사용하여 PC 전원 상태를 판단하도록 구성함.
+
+### 구현 및 실험 내용
+- ESP32 Light Switch Node 웹 UI 및 HTTP API 동작 확인
+- ESP32 PC Power Node 웹 UI 및 HTTP API 동작 확인
+- Raspberry Pi Flask Dashboard에 Light Switch Node 제어 기능 통합
+- Raspberry Pi Flask Dashboard에 PC Power Node 제어 기능 통합
+- PC 전원 LED 상태 확인을 위한 LDR 센서 배치 및 threshold 조정
+- Raspberry Pi에서 PC IP로 ping을 보내 PC 네트워크 응답 상태 확인
+- ping 결과와 LDR 값을 함께 사용하여 PC ON/OFF 후보 상태 판단
+- PC가 켜져 있다고 판단되면 전원 버튼을 누르지 않도록 Dashboard 버튼 잠금 처리
+- PC가 꺼져 있는 후보 상태일 때만 전원 버튼 누르기 버튼 활성화
+- PC Power Node 서보모터가 동작 전 REST 위치로 초기화된 뒤 버튼을 누르고 다시 REST로 복귀하도록 수정
+- Light Switch Node의 Light OFF 버튼에서 재확인 알림을 제거하여 Light ON/OFF 모두 버튼 클릭 즉시 동작하도록 수정
+- Dashboard 및 각 ESP32 Node 웹 UI 동작 화면을 캡처하여 이미지로 정리
+- PC Power Node, Light Switch Node, Raspberry Pi 전원 및 배선 구성을 사진으로 기록
+
+### 확인한 값
+PC Power Node에서 LDR 조도센서를 이용하여 PC 전원 LED 상태를 측정한 결과는 다음과 같음.
+
+- PC ON 상태: 약 57 ~ 2905
+- PC OFF 상태: 약 4095
+- threshold: 3500
+
+측정 결과, PC ON 상태에서도 LDR 값이 2905까지 올라가는 경우가 관찰되었기 때문에 기존 threshold 3000은 여유가 부족하다고 판단함. PC OFF 상태에서는 LDR 값이 4095에 가깝게 고정되는 경향을 보였으므로 threshold를 3500으로 조정함.
+
+PC 전원 상태 판단 규칙은 다음과 같이 정리함.
+
+- ping 성공 또는 LDR LED ON 감지: PC ON
+- ping 실패 및 LDR LED OFF 감지: OFF_CANDIDATE
+
+Raspberry Pi Dashboard에서는 PC가 ON으로 판단될 경우 “컴퓨터가 켜져있습니다. 전원 버튼은 잠금 처리됩니다.” 메시지를 표시하고, PC 전원 버튼 누르기 기능을 비활성화함. PC가 OFF_CANDIDATE로 판단될 경우에만 전원 버튼 누르기 기능을 활성화함.
+
+방 불 스위치 제어 실험에서는 MG90S 서보모터를 사용하여 실제 벽면 스위치의 ON/OFF 제어를 시도함. ON 방향은 비교적 안정적으로 동작하였으나, OFF 방향은 스위치의 기계적 저항이 커서 안정적으로 동작하지 않음. 반복 실험에서 초기 7회는 연속 성공하였으나 8번째 시도부터 실패가 발생하였고, 최종 성공률은 35.0%로 측정됨.
+
+### 결과
+Raspberry Pi가 중앙 서버 역할을 수행하고, 여러 ESP32 노드를 하나의 Dashboard에서 제어하는 구조를 구현함. 이를 통해 본 프로젝트의 구조가 단일 ESP32 테스트에서 벗어나 Raspberry Pi 중심의 다중 노드 Edge IoT 제어 시스템으로 확장됨.
+
+Light Switch Node는 ESP32 단독 웹 UI와 Raspberry Pi Dashboard 양쪽에서 정상적으로 응답함. 방 불 스위치 ON 방향 제어는 성공적으로 수행되었으나, OFF 방향 제어에서는 MG90S 서보모터의 토크 부족과 고정 구조 한계가 확인됨. 해당 문제는 코드나 통신 오류가 아니라 실제 물리 스위치의 기계적 저항과 서보모터 출력 한계로 판단함.
+
+PC Power Node는 LDR 센서를 통해 PC 전원 LED 상태를 감지하고, Raspberry Pi의 ping 결과와 함께 PC 전원 상태를 판단할 수 있음을 확인함. PC가 켜져 있을 때 전원 버튼을 다시 누르지 않도록 Dashboard에서 버튼을 잠금 처리하는 기능도 정상적으로 동작함. 이를 통해 단순 원격 제어가 아니라 센서 기반 상태 검증과 조건부 제어가 포함된 구조를 구현함.
+
+PC Power Node의 서보모터는 버튼을 누르기 전 REST 위치로 초기화되고, 지정한 방향으로 PC 전원 버튼을 누른 뒤 다시 REST 위치로 복귀하도록 수정함. 이를 통해 서보모터 전원 연결 직후 위치 불안정 문제를 줄이고, 버튼 누름 동작을 더 예측 가능하게 만들었음.
+
+### 발생한 문제 및 해결
+PC Power Node의 LDR threshold를 처음에는 3000으로 설정하였으나, PC가 켜져 있는 상태에서도 LDR 값이 2905까지 올라가는 경우가 관찰됨. 이 경우 threshold와 측정값 사이의 여유가 작아 PC ON 상태를 OFF로 잘못 판단할 가능성이 있다고 판단함. 이에 따라 threshold를 3500으로 변경하여 PC ON/OFF 판단 안정성을 높임.
+
+PC Power Node의 서보모터가 처음에는 원하는 방향과 다르게 움직이는 문제가 발생함. Raspberry Pi 서버의 문제가 아니라 ESP32 코드에서 서보모터 각도 설정과 초기화 흐름을 수정해야 하는 문제로 판단함. ESP32 PC Power Node 코드에서 서보모터가 동작 전 REST 위치로 이동한 뒤 버튼을 누르고 다시 REST로 돌아오도록 수정하여 문제를 해결함.
+
+Light Switch Node에서는 Light OFF 버튼을 누를 때 재확인 알림이 표시되어 Light ON 버튼과 동작 방식이 다르게 느껴지는 문제가 있었음. Dashboard의 JavaScript 함수에서 confirm 동작을 제거하여 Light ON/OFF 버튼 모두 클릭 즉시 명령을 전송하도록 수정함.
+
+방 불 스위치 OFF 방향 제어는 여전히 안정적으로 수행되지 않음. 하드웨어 고정 구조를 보강해도 실패가 반복되었고, 서보모터에서 지속적인 구동음이 발생하는 것으로 보아 스위치를 충분히 누르기에는 MG90S의 토크가 부족한 것으로 판단함. 향후 더 높은 토크의 서보모터로 교체하여 동일한 구조에서 다시 테스트할 예정임.
+
+### 데이터 및 이미지 파일
+이번 작업에서 정리한 주요 파일은 다음과 같음.
+
+- PC Power Node 코드: `esp32/pc_power_node/pc_power_node.ino`
+- Light Switch Node 코드: `esp32/light_switch_node/light_switch_node.ino`
+- Raspberry Pi Dashboard 서버 코드: `raspberry-pi/server/app.py`
+- Python dependency 목록: `raspberry-pi/server/requirements.txt`
+- PC Power Node 하드웨어 사진: `images/hardware/pc_power_node_servo_ldr_mount.jpg`
+- Light Switch Node 하드웨어 사진: `images/hardware/light_switch_node_servo_mount.jpg`
+- Raspberry Pi 및 전원 배선 사진: `images/wiring/raspberry_pi_and_servo_power_wiring.jpg`
+- Light Switch Node 웹 UI 캡처: `images/results/light_switch_node_web_ui.png`
+- PC Power Node 웹 UI 캡처: `images/results/pc_power_node_web_ui_off_state.png`
+- 통합 Dashboard Light Node 캡처: `images/results/integrated_dashboard_light_node_online.png`
+- 통합 Dashboard PC OFF 후보 캡처: `images/results/integrated_dashboard_pc_off_candidate.png`
+
+### 다음 작업
+방 불 스위치 제어 노드는 MG90S보다 토크가 더 강한 서보모터로 교체하여 OFF 방향 제어 안정성을 다시 테스트함. 기존 MG90S 실험 결과와 고토크 서보모터 적용 후 결과를 비교하여 하드웨어 토크 한계와 개선 효과를 보고서에 정리함.
+
+입원 중에는 현재까지 구현한 Raspberry Pi 서버, ESP32 Light Switch Node, ESP32 PC Power Node, LDR 기반 상태 검증, ping 기반 상태 확인, Dashboard 통합 구조를 보고서에 정리함. 단순 구현 과정뿐만 아니라 통신 구조, 상태 판단 로직, 실패 원인 분석, 하드웨어 한계, 개선 방향을 포함하여 작성함.
+
+퇴원 후에는 IR 송수신 Node를 추가하여 에어컨 리모컨 제어 기능을 확장함. Pi Camera 기반 영상 인식 기능은 현재 구현 범위에 포함하지 않고, 향후 확장 기능으로 분리함.
