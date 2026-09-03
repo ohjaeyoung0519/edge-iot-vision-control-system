@@ -5,9 +5,9 @@
 
 #include "wifi_config.h"
 
-// =====================
+// ========================
 // Light Switch Node Config
-// =====================
+// ========================
 
 const char* NODE_NAME = "light-switch-node";
 const char* NODE_ROLE = "room-light-control";
@@ -15,13 +15,12 @@ const char* NODE_ROLE = "room-light-control";
 // Servo
 const int SERVO_PIN = 18;
 
-// Tact switches
+// Local switches
 // 버튼 한쪽은 GPIO, 반대쪽은 GND에 연결
 const int BUTTON_ON_PIN = 21;
 const int BUTTON_OFF_PIN = 22;
 
 // Servo angles
-// 설치 후 실제 스위치 방향에 맞게 조정
 const int REST_ANGLE = 90;
 const int PRESS_ON_ANGLE = 50;
 const int PRESS_OFF_ANGLE = 140;
@@ -35,13 +34,12 @@ const unsigned long DEBOUNCE_MS = 300;
 const int SERVO_MIN_US = 500;
 const int SERVO_MAX_US = 2400;
 
-// If the servo buzzes at rest, change this to true.
-// 처음에는 false로 두고 테스트.
+// false이면 Servo를 계속 attach 상태로 유지
 const bool DETACH_AFTER_MOVE = false;
 
-// =====================
+// ========================
 // Global Objects
-// =====================
+// ========================
 
 WebServer server(80);
 Servo servo;
@@ -55,15 +53,16 @@ unsigned long lastButtonOffMs = 0;
 int lastActionAngle = REST_ANGLE;
 String lastAction = "rest";
 
-// =====================
+// ========================
 // Servo Helper Functions
-// =====================
+// ========================
 
 void attachServoIfNeeded() {
   if (!servoAttached) {
     servo.setPeriodHertz(50);
     servo.attach(SERVO_PIN, SERVO_MIN_US, SERVO_MAX_US);
     servoAttached = true;
+
     delay(100);
   }
 }
@@ -87,10 +86,16 @@ bool pressServo(int targetAngle, const String& actionName) {
 
   attachServoIfNeeded();
 
+  // 목표 위치로 이동
   servo.write(targetAngle);
+
+  // 실제 스위치를 누른 상태 유지
   delay(PRESS_HOLD_MS);
 
+  // Rest 위치로 복귀
   servo.write(REST_ANGLE);
+
+  // 복귀 안정화 대기
   delay(RETURN_WAIT_MS);
 
   detachServoIfNeeded();
@@ -101,29 +106,37 @@ bool pressServo(int targetAngle, const String& actionName) {
   lastActionAngle = targetAngle;
   lastAction = actionName;
 
+  Serial.println();
   Serial.print("[SERVO] action=");
-  Serial.print(actionName);
-  Serial.print(", target_angle=");
-  Serial.print(targetAngle);
-  Serial.print(", duration_ms=");
-  Serial.print((endUs - startUs) / 1000.0);
-  Serial.print(", heap_before=");
-  Serial.print(heapBefore);
-  Serial.print(", heap_after=");
-  Serial.print(heapAfter);
-  Serial.print(", heap_diff=");
+  Serial.println(actionName);
+
+  Serial.print("[SERVO] target_angle=");
+  Serial.println(targetAngle);
+
+  Serial.print("[SERVO] duration_ms=");
+  Serial.println((endUs - startUs) / 1000.0);
+
+  Serial.print("[SERVO] heap_before=");
+  Serial.println(heapBefore);
+
+  Serial.print("[SERVO] heap_after=");
+  Serial.println(heapAfter);
+
+  Serial.print("[SERVO] heap_diff=");
   Serial.println((int)heapAfter - (int)heapBefore);
 
   servoBusy = false;
+
   return true;
 }
 
-// =====================
+// ========================
 // JSON Response Helpers
-// =====================
+// ========================
 
 String jsonStatus() {
   String json = "{";
+
   json += "\"status\":\"ok\",";
   json += "\"node\":\"" + String(NODE_NAME) + "\",";
   json += "\"role\":\"" + String(NODE_ROLE) + "\",";
@@ -131,27 +144,34 @@ String jsonStatus() {
   json += "\"uptime_ms\":" + String(millis()) + ",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
-  json += "\"servo_busy\":" + String(servoBusy ? "true" : "false") + ",";
-  json += "\"servo_attached\":" + String(servoAttached ? "true" : "false") + ",";
+  json += "\"servo_busy\":";
+  json += servoBusy ? "true" : "false";
+  json += ",";
+  json += "\"servo_attached\":";
+  json += servoAttached ? "true" : "false";
+  json += ",";
   json += "\"rest_angle\":" + String(REST_ANGLE) + ",";
   json += "\"press_on_angle\":" + String(PRESS_ON_ANGLE) + ",";
   json += "\"press_off_angle\":" + String(PRESS_OFF_ANGLE) + ",";
   json += "\"last_action\":\"" + lastAction + "\",";
   json += "\"last_action_angle\":" + String(lastActionAngle);
+
   json += "}";
 
   return json;
 }
 
-// =====================
+// ========================
 // HTTP Handlers
-// =====================
+// ========================
 
 void handleRoot() {
   String html = "";
+
   html += "<!DOCTYPE html><html><head>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
   html += "<title>Light Switch Node</title>";
+
   html += "<style>";
   html += "body{font-family:Arial,sans-serif;background:#111;color:#eee;padding:24px;}";
   html += ".card{background:#1e1e1e;border-radius:16px;padding:20px;max-width:420px;margin:auto;}";
@@ -162,14 +182,21 @@ void handleRoot() {
   html += ".status{background:#2f80ed;color:white;}";
   html += "pre{background:#000;padding:12px;border-radius:8px;overflow:auto;}";
   html += "</style>";
+
   html += "</head><body>";
   html += "<div class='card'>";
+
   html += "<h1>Light Switch Node</h1>";
   html += "<p>ESP32 room light control node</p>";
+
   html += "<button class='on' onclick=\"fetch('/api/light/on').then(r=>r.text()).then(t=>out.textContent=t)\">Light ON</button>";
+
   html += "<button class='off' onclick=\"fetch('/api/light/off').then(r=>r.text()).then(t=>out.textContent=t)\">Light OFF</button>";
+
   html += "<button class='status' onclick=\"fetch('/api/status').then(r=>r.text()).then(t=>out.textContent=t)\">Status</button>";
+
   html += "<pre id='out'>Ready</pre>";
+
   html += "</div>";
   html += "</body></html>";
 
@@ -178,52 +205,138 @@ void handleRoot() {
 
 void handlePing() {
   String json = "{";
+
   json += "\"status\":\"ok\",";
   json += "\"node\":\"" + String(NODE_NAME) + "\",";
   json += "\"role\":\"" + String(NODE_ROLE) + "\",";
   json += "\"uptime_ms\":" + String(millis()) + ",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
   json += "\"rssi\":" + String(WiFi.RSSI());
+
+  json += "}";
+
+  server.send(200, "application/json", json);
+}
+
+// ========================
+// Benchmark Handler
+// ========================
+//
+// HTTP vs MQTT 비교를 위한 실험 전용 Endpoint.
+//
+// 실제 Servo Motor를 움직이지 않음.
+// 의도적인 delay()도 포함하지 않음.
+//
+// 수행 작업:
+// 1. command_id 확인
+// 2. ESP32 Heap 상태 확인
+// 3. Wi-Fi RSSI 확인
+// 4. ESP32 내부 처리시간 측정
+// 5. 결과 반환
+//
+// 호출 예:
+// /api/benchmark?id=157
+//
+
+void handleBenchmark() {
+  unsigned long startUs = micros();
+
+  String commandId = "";
+
+  if (server.hasArg("id")) {
+    commandId = server.arg("id");
+  }
+
+  uint32_t freeHeap = ESP.getFreeHeap();
+  uint32_t minFreeHeap = ESP.getMinFreeHeap();
+  uint32_t maxAllocHeap = ESP.getMaxAllocHeap();
+
+  int32_t rssi = WiFi.RSSI();
+
+  // Benchmark Handler 내부 처리시간
+  // JSON 전송 및 Network RTT와 분리하여 기록
+  unsigned long processingUs = micros() - startUs;
+
+  String json = "{";
+
+  json += "\"command_id\":\"" + commandId + "\",";
+  json += "\"status\":\"ok\",";
+  json += "\"esp_processing_us\":" + String(processingUs) + ",";
+  json += "\"free_heap\":" + String(freeHeap) + ",";
+  json += "\"min_free_heap\":" + String(minFreeHeap) + ",";
+  json += "\"max_alloc_heap\":" + String(maxAllocHeap) + ",";
+  json += "\"rssi_dbm\":" + String(rssi);
+
   json += "}";
 
   server.send(200, "application/json", json);
 }
 
 void handleStatus() {
-  server.send(200, "application/json", jsonStatus());
+  server.send(
+    200,
+    "application/json",
+    jsonStatus()
+  );
 }
 
 void handleLightOn() {
-  bool result = pressServo(PRESS_ON_ANGLE, "light_on");
+  bool result = pressServo(
+    PRESS_ON_ANGLE,
+    "light_on"
+  );
 
   String json = "{";
-  json += "\"status\":\"" + String(result ? "ok" : "busy") + "\",";
+
+  json += "\"status\":\"";
+  json += result ? "ok" : "busy";
+  json += "\",";
+
   json += "\"action\":\"light_on\",";
   json += "\"target_angle\":" + String(PRESS_ON_ANGLE) + ",";
   json += "\"node\":\"" + String(NODE_NAME) + "\",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap());
+
   json += "}";
 
-  server.send(result ? 200 : 409, "application/json", json);
+  server.send(
+    result ? 200 : 409,
+    "application/json",
+    json
+  );
 }
 
 void handleLightOff() {
-  bool result = pressServo(PRESS_OFF_ANGLE, "light_off");
+  bool result = pressServo(
+    PRESS_OFF_ANGLE,
+    "light_off"
+  );
 
   String json = "{";
-  json += "\"status\":\"" + String(result ? "ok" : "busy") + "\",";
+
+  json += "\"status\":\"";
+  json += result ? "ok" : "busy";
+  json += "\",";
+
   json += "\"action\":\"light_off\",";
   json += "\"target_angle\":" + String(PRESS_OFF_ANGLE) + ",";
   json += "\"node\":\"" + String(NODE_NAME) + "\",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap());
+
   json += "}";
 
-  server.send(result ? 200 : 409, "application/json", json);
+  server.send(
+    result ? 200 : 409,
+    "application/json",
+    json
+  );
 }
 
-void handleServoRest() {
+void handleServoReset() {
   attachServoIfNeeded();
+
   servo.write(REST_ANGLE);
+
   delay(300);
 
   lastAction = "rest";
@@ -232,50 +345,65 @@ void handleServoRest() {
   detachServoIfNeeded();
 
   String json = "{";
+
   json += "\"status\":\"ok\",";
   json += "\"action\":\"servo_rest\",";
   json += "\"rest_angle\":" + String(REST_ANGLE);
+
   json += "}";
 
-  server.send(200, "application/json", json);
+  server.send(
+    200,
+    "application/json",
+    json
+  );
 }
 
-// =====================
+// ========================
 // Wi-Fi Setup
-// =====================
+// ========================
 
 void connectWiFi() {
   Serial.println();
   Serial.println("[WiFi] Connecting...");
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  WiFi.begin(
+    WIFI_SSID,
+    WIFI_PASSWORD
+  );
 
   int retry = 0;
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
+
     Serial.print(".");
+
     retry++;
 
     if (retry > 60) {
       Serial.println();
       Serial.println("[WiFi] Failed. Restarting...");
+
       ESP.restart();
     }
   }
 
   Serial.println();
   Serial.println("[WiFi] Connected");
+
   Serial.print("[WiFi] IP address: ");
   Serial.println(WiFi.localIP());
+
   Serial.print("[WiFi] RSSI: ");
   Serial.println(WiFi.RSSI());
 }
 
-// =====================
+// ========================
 // Button Check
-// =====================
+// ========================
 
 void checkButtons() {
   unsigned long now = millis();
@@ -283,72 +411,149 @@ void checkButtons() {
   int onState = digitalRead(BUTTON_ON_PIN);
   int offState = digitalRead(BUTTON_OFF_PIN);
 
-  if (onState == LOW && now - lastButtonOnMs > DEBOUNCE_MS) {
+  if (
+    onState == LOW &&
+    now - lastButtonOnMs > DEBOUNCE_MS
+  ) {
     lastButtonOnMs = now;
-    Serial.println("[BUTTON] ON button pressed");
-    pressServo(PRESS_ON_ANGLE, "local_button_on");
+
+    Serial.println(
+      "[BUTTON] ON button pressed"
+    );
+
+    pressServo(
+      PRESS_ON_ANGLE,
+      "local_button_on"
+    );
   }
 
-  if (offState == LOW && now - lastButtonOffMs > DEBOUNCE_MS) {
+  if (
+    offState == LOW &&
+    now - lastButtonOffMs > DEBOUNCE_MS
+  ) {
     lastButtonOffMs = now;
-    Serial.println("[BUTTON] OFF button pressed");
-    pressServo(PRESS_OFF_ANGLE, "local_button_off");
+
+    Serial.println(
+      "[BUTTON] OFF button pressed"
+    );
+
+    pressServo(
+      PRESS_OFF_ANGLE,
+      "local_button_off"
+    );
   }
 }
 
-// =====================
-// Setup / Loop
-// =====================
+// ========================
+// Setup
+// ========================
 
 void setup() {
   Serial.begin(115200);
+
   delay(1000);
 
   Serial.println();
-  Serial.println("=================================");
+  Serial.println("==============================");
   Serial.println("ESP32 Light Switch Node Start");
-  Serial.println("=================================");
+  Serial.println("==============================");
 
-  pinMode(BUTTON_ON_PIN, INPUT_PULLUP);
-  pinMode(BUTTON_OFF_PIN, INPUT_PULLUP);
+  pinMode(
+    BUTTON_ON_PIN,
+    INPUT_PULLUP
+  );
+
+  pinMode(
+    BUTTON_OFF_PIN,
+    INPUT_PULLUP
+  );
 
   attachServoIfNeeded();
+
   servo.write(REST_ANGLE);
+
   delay(1000);
 
   connectWiFi();
 
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/api/ping", HTTP_GET, handlePing);
-  server.on("/api/status", HTTP_GET, handleStatus);
-  server.on("/api/light/on", HTTP_GET, handleLightOn);
-  server.on("/api/light/off", HTTP_GET, handleLightOff);
-  server.on("/api/servo/rest", HTTP_GET, handleServoRest);
+  // HTTP Endpoint 등록
+  server.on(
+    "/",
+    HTTP_GET,
+    handleRoot
+  );
+
+  server.on(
+    "/api/ping",
+    HTTP_GET,
+    handlePing
+  );
+
+  // HTTP/MQTT 성능 비교용 Benchmark Endpoint
+  server.on(
+    "/api/benchmark",
+    HTTP_GET,
+    handleBenchmark
+  );
+
+  server.on(
+    "/api/status",
+    HTTP_GET,
+    handleStatus
+  );
+
+  server.on(
+    "/api/light/on",
+    HTTP_GET,
+    handleLightOn
+  );
+
+  server.on(
+    "/api/light/off",
+    HTTP_GET,
+    handleLightOff
+  );
+
+  server.on(
+    "/api/servo/rest",
+    HTTP_GET,
+    handleServoReset
+  );
 
   server.begin();
 
   Serial.println("[HTTP] Server started");
+
   Serial.println("[HTTP] Available endpoints:");
   Serial.println("  GET /");
   Serial.println("  GET /api/ping");
+  Serial.println("  GET /api/benchmark?id=1");
   Serial.println("  GET /api/status");
   Serial.println("  GET /api/light/on");
   Serial.println("  GET /api/light/off");
   Serial.println("  GET /api/servo/rest");
+
   Serial.println();
 
   Serial.println("[PIN] Servo: GPIO18");
   Serial.println("[PIN] ON button: GPIO21 -> GND");
   Serial.println("[PIN] OFF button: GPIO22 -> GND");
+
   Serial.println();
 
   Serial.println("[ANGLE] REST: 90");
   Serial.println("[ANGLE] ON: 50");
   Serial.println("[ANGLE] OFF: 140");
+
   Serial.println();
 }
 
+// ========================
+// Loop
+// ========================
+
 void loop() {
   server.handleClient();
+
   checkButtons();
 }
