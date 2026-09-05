@@ -1,17 +1,12 @@
 # Edge IoT Vision & Control System
 
-Raspberry Pi 5 and ESP32 based edge IoT control system with physical device actuation, state verification, protocol benchmarking, resource measurement, and bottleneck analysis.
+[한국어](README.md) | **English**
 
-The project began as a practical remote-control system and was later extended into a systems-oriented experiment that separates:
+This is a personal project using Raspberry Pi 5 and ESP32 to control physical devices and directly measure and analyze communication latency, ESP32 processing time and heap behavior, Raspberry Pi resource usage, physical actuation latency, and control reliability.
 
-- Communication latency
-- ESP32 application processing
-- Raspberry Pi resource usage
-- ESP32 heap behavior
-- Physical actuation latency
-- Physical control reliability
+The project started as a remote-control system using ESP32 and servo motors. It was later extended beyond simply making the system work, with a focus on analyzing where latency occurs and which factors affect user-visible performance and reliability.
 
-The current implemented scope focuses on the **Light Switch Node** and **PC Power Node**.
+> The current implementation and analysis focus on the **Light Switch Node** and **PC Power Node**.
 
 ---
 
@@ -19,27 +14,27 @@ The current implemented scope focuses on the **Light Switch Node** and **PC Powe
 
 ### Protocol Benchmark
 
-All final protocol measurements were performed with:
+All final protocol measurements were performed with ESP32 Wi-Fi Sleep disabled.
 
-- ESP32 Wi-Fi Sleep: **OFF**
-- 50 warm-up requests per protocol
-- 200 requests × 5 runs
-- 1000 measured requests per protocol
-- 3000 total measured requests
-- Sequential request / response
-- Interleaved protocol order across runs
-
-All **3000 / 3000 requests succeeded**.
+- HTTP: 1000 requests
+- MQTT QoS 0: 1000 requests
+- MQTT QoS 1: 1000 requests
+- 3000 total requests
+- All requests succeeded: **3000 / 3000**
+- 200 requests × 5 runs per protocol
+- Protocol order was rotated across runs to reduce fixed-order effects
 
 | Protocol | Mean RTT | Median | P95 | P99 | Success |
 |---|---:|---:|---:|---:|---:|
-| MQTT QoS0 | **15.319 ms** | 13.988 ms | 22.980 ms | 31.076 ms | 1000/1000 |
+| MQTT QoS 0 | **15.319 ms** | 13.988 ms | 22.980 ms | 31.076 ms | 1000/1000 |
 | HTTP | **20.515 ms** | 19.450 ms | 28.807 ms | 37.038 ms | 1000/1000 |
-| MQTT QoS1 | **61.282 ms** | 59.508 ms | 79.849 ms | 94.444 ms | 1000/1000 |
+| MQTT QoS 1 | **61.282 ms** | 59.508 ms | 79.849 ms | 94.444 ms | 1000/1000 |
 
-In this implementation and local Wi-Fi environment, MQTT QoS0 produced the lowest application-level RTT.
+In this implementation and local Wi-Fi environment, MQTT QoS 0 produced the lowest application-level RTT.
 
-MQTT QoS1 showed substantially higher RTT than QoS0, reflecting the additional protocol-level reliability path under this implementation.
+MQTT QoS 1 showed substantially higher application-level RTT than MQTT QoS 0.
+
+This result is specific to the tested system and experimental environment and should not be interpreted as a universal protocol ranking.
 
 These measurements are **application-level RTT values**, not pure network propagation latency.
 
@@ -51,121 +46,108 @@ These measurements are **application-level RTT values**, not pure network propag
 
 ```mermaid
 flowchart TD
-    U[User / Web Dashboard]
+    USER[Web Dashboard / User]
 
     PI[Raspberry Pi 5<br/>Edge Control Server]
-    F[Flask Application]
-    M[Mosquitto MQTT Broker]
+    FLASK[Flask Application]
+    MQTT[Mosquitto MQTT Broker]
 
-    ESP1[ESP32 Light Switch Node]
-    ESP2[ESP32 PC Power Node]
+    LIGHT[ESP32 Light Switch Node]
+    PC[ESP32 PC Power Node]
 
-    S1[MG996R Servo]
-    S2[Servo + LDR Sensor]
+    SERVO1[MG996R Servo]
+    SERVO2[Servo + LDR]
 
-    L[Physical Light Switch]
-    P[Physical PC Power Button / LED]
+    SWITCH[Physical Light Switch]
+    PCDEVICE[PC Power Button / LED]
 
-    U --> PI
-    PI --> F
+    USER --> PI
+    PI --> FLASK
 
-    F -->|HTTP| ESP1
-    F -->|HTTP| ESP2
+    FLASK -->|HTTP| LIGHT
+    FLASK -->|HTTP| PC
 
-    F --> M
-    M -->|MQTT| ESP1
+    FLASK --> MQTT
+    MQTT -->|MQTT| LIGHT
 
-    ESP1 --> S1
-    S1 --> L
+    LIGHT --> SERVO1
+    SERVO1 --> SWITCH
 
-    ESP2 --> S2
-    S2 --> P
+    PC --> SERVO2
+    SERVO2 --> PCDEVICE
 ```
 
-The Raspberry Pi acts as the central edge controller.
-
-The ESP32 boards act as wireless hardware nodes that interface with physical devices.
+The Raspberry Pi 5 acts as the central edge controller, while the ESP32 boards operate as wireless hardware-control nodes connected to physical devices.
 
 ---
 
 ## Implemented Nodes
 
-### Light Switch Node
+### 1. Light Switch Node
 
-The Light Switch Node physically presses a wall switch using a servo motor.
+The Light Switch Node physically presses a wall switch using an MG996R servo.
 
-Final control parameters:
+Final configuration:
 
 ```text
-Servo              : MG996R
+Servo       : MG996R
 
-REST angle         : 90°
-ON angle           : 50°
-OFF angle          : 140°
+REST angle  : 90°
+ON angle    : 50°
+OFF angle   : 140°
 
-Press hold         : 400 ms
-Return wait        : 600 ms
+Press Hold  : 400 ms
+Return Wait : 600 ms
 ```
 
 Supported functions include:
 
-- HTTP Light ON
-- HTTP Light OFF
-- Local hardware buttons
+- HTTP Light ON/OFF
+- Local ESP32 button control
 - HTTP benchmark endpoint
-- MQTT benchmark command / ACK
-- ESP32 heap measurement
-- RSSI measurement
+- MQTT QoS 0 / QoS 1 benchmark
+- MQTT application ACK
+- ESP32 Free Heap measurement
+- Minimum Free Heap measurement
+- Maximum Allocatable Heap measurement
+- Wi-Fi RSSI measurement
 
----
-
-### PC Power Node
+### 2. PC Power Node
 
 The PC Power Node combines two state signals:
 
 ```text
 Network Ping
 +
-LDR measurement of the physical PC power LED
+LDR measurement of the PC power LED
 ```
 
-The PC is considered ON when either:
+Decision logic:
 
-- Ping succeeds, or
-- The power LED is detected as ON
+```text
+Ping success OR LDR detects LED ON
+→ PC ON
 
-Power-button actuation is permitted only when both indicate an OFF state.
+Ping failure AND LDR detects LED OFF
+→ PC OFF candidate
+```
 
-This prevents unnecessary physical power-button presses when the PC is already running.
+The servo presses the physical power button only when the PC is classified as an OFF candidate.
 
-The LDR uses:
+LDR sampling:
 
 ```text
 20 samples
-5 ms interval per sample
+5 ms sample interval
+
 ≈ 100 ms programmed sampling delay
 ```
 
-The PC power servo sequence includes approximately:
-
-```text
-Initial REST wait
-+ Press hold
-+ Return wait
-≈ 1950 ms programmed actuator sequence
-```
+The PC power servo sequence contains approximately **1950 ms** of programmed actuator timing.
 
 ---
 
 ## Protocol Benchmark Design
-
-The final protocol benchmark compared:
-
-```text
-HTTP
-MQTT QoS0
-MQTT QoS1
-```
 
 The benchmark endpoint intentionally excludes:
 
@@ -173,27 +155,32 @@ The benchmark endpoint intentionally excludes:
 - LDR sampling
 - Ping
 - Physical device actuation
-- Intentional actuator delays
+- Servo hold / return delays
 
-This makes the protocol benchmark primarily a **communication and application-response experiment**.
+The purpose is to measure the **communication and application-response path** separately from physical actuation.
 
-### Run Structure
-
-```text
-Run 1: HTTP      -> MQTT QoS0 -> MQTT QoS1
-Run 2: MQTT QoS0 -> MQTT QoS1 -> HTTP
-Run 3: MQTT QoS1 -> HTTP      -> MQTT QoS0
-Run 4: HTTP      -> MQTT QoS1 -> MQTT QoS0
-Run 5: MQTT QoS1 -> MQTT QoS0 -> HTTP
-```
-
-Each protocol was measured:
+### Measurement Configuration
 
 ```text
-200 requests × 5 runs = 1000 samples
+Warm-up
+50 requests per protocol
+
+Main Measurement
+200 requests × 5 runs
+= 1000 samples per protocol
 ```
 
-Interleaving the protocol order reduces the effect of a fixed protocol execution order on the final comparison.
+Run order:
+
+```text
+Run 1: HTTP       → MQTT QoS 0 → MQTT QoS 1
+Run 2: MQTT QoS 0 → MQTT QoS 1 → HTTP
+Run 3: MQTT QoS 1 → HTTP       → MQTT QoS 0
+Run 4: HTTP       → MQTT QoS 1 → MQTT QoS 0
+Run 5: MQTT QoS 1 → MQTT QoS 0 → HTTP
+```
+
+The protocol order was rotated to reduce fixed-order effects.
 
 ![Per Run Mean Latency](data/figures/per_run_mean_latency.png)
 
@@ -201,17 +188,11 @@ Interleaving the protocol order reduces the effect of a fixed protocol execution
 
 ## Latency Distribution
 
-The distribution results remained clearly separated across the three protocol conditions.
+The analysis compares not only mean latency, but also median, P95, and P99 values.
 
-MQTT QoS0 produced the lowest typical latency.
-
-HTTP followed at approximately 20 ms mean RTT.
-
-MQTT QoS1 remained near 60 ms for most requests and also showed a larger tail.
+MQTT QoS 0 showed lower typical and tail latency than HTTP, while MQTT QoS 1 showed higher application-level RTT than MQTT QoS 0.
 
 ![Latency Boxplot](data/figures/latency_boxplot.png)
-
-Request-by-request behavior can also be seen below.
 
 ![Latency Sequence](data/figures/latency_sequence.png)
 
@@ -219,33 +200,33 @@ Request-by-request behavior can also be seen below.
 
 ## ESP32 Processing Time
 
-The ESP32 benchmark handler measured its internal processing time separately.
+Processing time inside the ESP32 benchmark handler was measured separately.
 
 | Protocol | Mean ESP32 Processing |
 |---|---:|
 | HTTP | **401.999 µs** |
-| MQTT QoS0 | **419.632 µs** |
-| MQTT QoS1 | **420.765 µs** |
+| MQTT QoS 0 | **419.632 µs** |
+| MQTT QoS 1 | **420.765 µs** |
 
-The three values are all approximately **0.4 ms**.
+All three conditions were close to **0.4 ms**.
 
-This is much smaller than the measured application RTT:
+The measured application RTT values were:
 
 ```text
 HTTP       : 20.515 ms
-MQTT QoS0  : 15.319 ms
-MQTT QoS1  : 61.282 ms
+MQTT QoS 0 : 15.319 ms
+MQTT QoS 1 : 61.282 ms
 ```
 
-Therefore, the protocol-dependent RTT difference was not dominated by the measured ESP32 benchmark-handler computation.
+Therefore, the protocol-dependent RTT differences were not dominated by the measured ESP32 benchmark-handler computation.
 
 ![ESP Processing](data/figures/esp_processing_mean.png)
 
 ---
 
-## Communication Bottleneck Breakdown
+## Communication Bottleneck Analysis
 
-For analysis:
+The following derived value was used:
 
 ```text
 Host / Network / Protocol Remainder
@@ -255,39 +236,38 @@ Application RTT
 Measured ESP32 Handler Processing
 ```
 
-Mean values:
-
 | Protocol | Application RTT | ESP32 Processing | Remainder |
 |---|---:|---:|---:|
 | HTTP | 20.515 ms | 0.402 ms | 20.113 ms |
-| MQTT QoS0 | 15.319 ms | 0.420 ms | 14.900 ms |
-| MQTT QoS1 | 61.282 ms | 0.421 ms | 60.862 ms |
+| MQTT QoS 0 | 15.319 ms | 0.420 ms | 14.900 ms |
+| MQTT QoS 1 | 61.282 ms | 0.421 ms | 60.862 ms |
 
-The remainder includes multiple components such as:
+The remainder may include:
 
-- Host-side processing
+- Raspberry Pi host processing
 - Wi-Fi communication
 - TCP / MQTT protocol handling
-- Broker handling
+- Mosquitto broker handling
 - Response generation
 - Response reception
 
-It must **not** be interpreted as pure network latency.
+It is **not interpreted as pure network latency**.
 
 ![Latency Breakdown](data/figures/latency_breakdown.png)
 
 ---
 
-## Wi-Fi Power-Saving Diagnostic
+## Wi-Fi Power Saving and Latency
 
-During early MQTT testing, many requests unexpectedly showed RTT values near 100 ms.
+Early MQTT measurements repeatedly showed unexpectedly high RTT values near the 100 ms scale.
 
-A controlled comparison of the ESP32 Wi-Fi power-saving configuration was performed.
+A separate A/B diagnostic was performed to test the effect of ESP32 Wi-Fi power saving.
 
-With Wi-Fi Sleep enabled, a confirmed MQTT QoS0 dry run produced:
+Confirmed Wi-Fi Sleep ON measurement:
 
 ```text
-Mean RTT ≈ 121.279 ms
+MQTT QoS 0 Mean RTT
+≈ 121.279 ms
 ```
 
 After disabling Wi-Fi Sleep:
@@ -296,21 +276,23 @@ After disabling Wi-Fi Sleep:
 WiFi.setSleep(false);
 ```
 
-a confirmed 30-request run produced:
+a confirmed Sleep OFF run produced:
 
 ```text
-Mean RTT ≈ 15.886 ms
+Mean RTT
+≈ 15.886 ms
 ```
 
-The final 1000-request MQTT QoS0 benchmark reproduced the lower latency:
+The final 1000-request MQTT QoS 0 benchmark reproduced a similar result:
 
 ```text
-Mean RTT = 15.319 ms
+Mean RTT
+= 15.319 ms
 ```
 
-This showed that the ESP32 Wi-Fi power-saving configuration was a major latency factor in this system.
+This indicates that ESP32 Wi-Fi power-saving behavior was an important latency factor in this system.
 
-All final protocol comparisons therefore used:
+All final protocol comparisons used:
 
 ```text
 Wi-Fi Sleep = OFF
@@ -318,24 +300,22 @@ Wi-Fi Sleep = OFF
 
 ---
 
-## ESP32 Heap Behavior
+## ESP32 Heap Analysis
 
-Each benchmark request also recorded:
+Each request recorded:
 
 - Free Heap
 - Minimum Free Heap
 - Maximum Allocatable Heap
 - RSSI
 
-The complete protocol dataset was reconstructed in chronological measurement order.
+The 3000 samples were reconstructed in chronological timestamp order.
 
-Free heap moved between several runtime levels, but no continuous downward trend was observed across the 3000-request experiment.
-
-Therefore, the result is stated conservatively as:
+Free Heap moved between several runtime levels, but no continuous downward trend was observed across the full benchmark.
 
 > No cumulative free-heap decrease was observed within the scope of the benchmark.
 
-This does not prove that memory leaks are impossible under every runtime condition.
+This does not prove that memory leaks are impossible under all runtime conditions.
 
 ![ESP32 Free Heap](data/figures/free_heap_chronological.png)
 
@@ -343,25 +323,21 @@ This does not prove that memory leaks are impossible under every runtime conditi
 
 ## Raspberry Pi Resource Usage
 
-Raspberry Pi resource usage was measured separately using `psutil`.
-
-Each protocol used:
+Raspberry Pi resource usage was measured with `psutil`.
 
 ```text
-200 requests × 3 runs
-0.2 s request interval
-0.2 s resource sampling interval
+200 requests × 3 runs per protocol
+Request interval: 0.2 s
+Resource sampling interval: 0.2 s
 ```
-
-The protocol order was interleaved across runs.
 
 ### CPU
 
 | Protocol | Python Worker CPU | Mosquitto CPU |
 |---|---:|---:|
 | HTTP | 0.429% | 0.008% |
-| MQTT QoS0 | 0.397% | 0.037% |
-| MQTT QoS1 | 0.403% | 0.043% |
+| MQTT QoS 0 | 0.397% | 0.037% |
+| MQTT QoS 1 | 0.403% | 0.043% |
 
 ![Pi CPU](data/figures/pi_resource_cpu.png)
 
@@ -370,32 +346,28 @@ The protocol order was interleaved across runs.
 | Protocol | Python Worker RSS | Mosquitto RSS |
 |---|---:|---:|
 | HTTP | 23.165 MiB | 8.406 MiB |
-| MQTT QoS0 | 23.371 MiB | 8.406 MiB |
-| MQTT QoS1 | 23.389 MiB | 8.406 MiB |
+| MQTT QoS 0 | 23.371 MiB | 8.406 MiB |
+| MQTT QoS 1 | 23.389 MiB | 8.406 MiB |
 
 ![Pi Memory](data/figures/pi_resource_rss.png)
 
-Under the tested sequential 0.2 s workload, all protocol conditions produced low Raspberry Pi resource usage.
+Under the tested sequential workload, all three protocol conditions produced low Raspberry Pi resource usage.
 
-The MQTT broker introduced measurable CPU activity compared with its HTTP idle state, but the absolute broker CPU usage remained small.
+Mosquitto CPU activity increased during MQTT workloads compared with the HTTP idle condition, but the absolute usage remained small.
 
-CPU percentages represent average usage during the complete workload and should not be interpreted as per-request CPU cost.
+The CPU percentages are workload averages including the 0.2 s request interval and should not be interpreted as per-request CPU costs.
 
 ---
 
-## Physical End-to-End Latency
+## Light Control End-to-End Latency
 
-The protocol benchmark intentionally removed physical actuator delays.
-
-A separate experiment measured the actual Light Switch ON/OFF path.
+Physical Light Switch latency was measured separately from the protocol benchmark.
 
 ```text
-ON  : 10 measurements
-OFF : 10 measurements
+ON   : 10 measurements
+OFF  : 10 measurements
 Total: 20 measurements
 ```
-
-Results:
 
 | Metric | Value |
 |---|---:|
@@ -403,61 +375,58 @@ Results:
 | OFF Mean | 1031.995 ms |
 | Overall Mean | **1032.247 ms** |
 | Overall Median | 1031.450 ms |
-| Minimum | 1028.087 ms |
-| Maximum | 1040.075 ms |
+| Min | 1028.087 ms |
+| Max | 1040.075 ms |
 
-The programmed actuator sequence contains:
+The programmed actuator sequence includes:
 
 ```text
-Press hold  : 400 ms
-Return wait : 600 ms
+Press Hold  : 400 ms
+Return Wait : 600 ms
 
-Total programmed delay = 1000 ms
+Total Programmed Delay
+= 1000 ms
 ```
 
-Therefore:
+Mean E2E breakdown:
 
 ```text
-Measured mean E2E
+Measured E2E
 = 1032.247 ms
 
-Programmed actuator delay
+Programmed Actuator Delay
 = 1000 ms
 ≈ 96.9%
 
-Non-programmed remainder
+Non-programmed Remainder
 ≈ 32.247 ms
 ≈ 3.1%
 ```
 
-This demonstrates that the dominant user-visible latency in the physical Light Switch path is not the communication RTT.
-
-It is the intentionally programmed physical actuator sequence.
+The physical Light Control path was therefore dominated by the intentionally programmed actuator timing rather than the communication RTT.
 
 ![Light E2E Breakdown](data/figures/light_e2e_breakdown.png)
-
-ON and OFF showed almost identical latency distributions.
 
 ![Light ON OFF E2E](data/figures/light_e2e_on_off.png)
 
 ---
 
-## Physical Reliability Improvement
+## Actuation Reliability Improvement
 
-The initial Light Switch prototype used an MG90S servo and achieved:
+The initial MG90S-based prototype achieved:
 
 ```text
 7 / 20 successful actuations
 = 35%
 ```
 
-The final system used an MG996R servo together with:
+The final configuration combined:
 
+- MG996R servo
 - Stronger mechanical mounting
-- Control-angle calibration
-- 5° / 10° incremental adjustment during tuning
+- 5° / 10° control-angle calibration
 
-Final reliability testing produced:
+Final test:
 
 ```text
 ON  : 20 / 20
@@ -468,96 +437,27 @@ Total
 = 100%
 ```
 
-The improvement should not be attributed to servo torque alone.
+The reliability improvement is attributed to the combined effect of actuator capability, mechanical mounting, and angle calibration rather than servo torque alone.
 
-The final result came from the combined improvement of:
-
-```text
-Actuator capability
-+
-Mechanical mounting
-+
-Control-angle calibration
-```
-
-A separate short-duration servo stress test also completed:
+### Short-Term Servo Stress Test
 
 ```text
-Duration     : 10 minutes
-Cycles       : 172
-Temperature  : approximately 26.5°C -> 27.8°C
-Observed reset / failure: none
+Duration       : 10 min
+Cycles         : 172
+Surface Temp   : approximately 26.5°C → 27.8°C
+Reset / Failure: none observed
 ```
 
 ---
 
 ## Main Findings
 
-The project produced several important observations.
-
-### 1. MQTT QoS0 produced the lowest application RTT
-
-Under the final controlled local Wi-Fi environment:
-
-```text
-MQTT QoS0  : 15.319 ms
-HTTP       : 20.515 ms
-MQTT QoS1  : 61.282 ms
-```
-
-The result should be interpreted as specific to this implementation and experimental environment rather than as a universal protocol ranking.
-
-### 2. ESP32 handler computation was not the dominant communication bottleneck
-
-All protocol conditions showed approximately:
-
-```text
-0.4 ms
-```
-
-of measured ESP32 benchmark-handler processing.
-
-Most of the measured RTT therefore remained outside that interval.
-
-### 3. Wi-Fi power saving strongly affected latency
-
-Disabling ESP32 Wi-Fi Sleep reduced MQTT QoS0 latency from approximately 100 ms scale behavior to approximately 15 ms mean RTT.
-
-### 4. Raspberry Pi resource usage remained low
-
-The Raspberry Pi 5 handled all three protocol workloads with low average CPU usage and similar worker RSS.
-
-### 5. Physical actuation dominated user-visible latency
-
-The actual Light Switch E2E latency was:
-
-```text
-1032.247 ms
-```
-
-and approximately:
-
-```text
-96.9%
-```
-
-of that value came from the programmed actuator delay.
-
-### 6. Physical reliability required hardware and mechanical improvements
-
-Reliable control depended not only on communication software but also on:
-
-- Actuator selection
-- Mechanical installation
-- Control-angle calibration
-
-The final configuration improved from:
-
-```text
-35% -> 100%
-```
-
-measured actuation success.
+1. **MQTT QoS 0 produced the lowest application-level RTT in the tested environment.**
+2. **Measured ESP32 handler processing was not the main source of protocol-dependent RTT differences.**
+3. **ESP32 Wi-Fi power-saving configuration had a large effect on latency.**
+4. **Raspberry Pi 5 resource usage remained low under the tested workload.**
+5. **Physical actuation timing dominated user-visible Light Control latency.**
+6. **Reliable physical control depended on actuator selection, mounting, and calibration as well as software.**
 
 ---
 
@@ -574,6 +474,7 @@ measured actuation success.
 │
 ├── data/
 │   ├── README.md
+│   ├── README_EN.md
 │   ├── raw/
 │   │   ├── main/
 │   │   ├── diagnostic/
@@ -583,33 +484,21 @@ measured actuation success.
 │   └── figures/
 │
 ├── esp32/
-│   ├── light_switch_node/
-│   ├── mqtt_connection_test/
-│   └── ...
-│
 ├── raspberry-pi/
-│   └── server/
-│       ├── benchmarks/
-│       ├── resource_worker.py
-│       ├── measure_pi_resources.py
-│       ├── measure_light_e2e.py
-│       └── ...
-│
 ├── docs/
 ├── images/
 ├── report/
-└── README.md
+├── README.md
+└── README_EN.md
 ```
 
-For a detailed description of the measurement datasets:
+Detailed dataset documentation:
 
-[Experiment Data Documentation](data/README.md)
+[한국어](data/README.md) | [English](data/README_EN.md)
 
 ---
 
 ## Analysis Environment
-
-Main analysis environment:
 
 ```text
 Python      3.13.5
@@ -620,18 +509,18 @@ psutil      7.2.2
 paho-mqtt   2.1.0
 ```
 
-MQTT environment:
+MQTT:
 
 ```text
-Mosquitto Broker            2.0.21
-ESP32 MQTT Library          MQTT by Joel Gaehwiler 2.5.3
+Mosquitto Broker   2.0.21
+ESP32 MQTT Library MQTT by Joel Gaehwiler 2.5.3
 ```
 
-ESP32 development environment:
+ESP32 development:
 
 ```text
 Arduino IDE 2.3.10
-ESP32 Dev Module
+Board: ESP32 Dev Module
 Serial Baud: 115200
 ```
 
@@ -639,87 +528,49 @@ Serial Baud: 115200
 
 ## Reproducing the Analysis
 
-The final protocol raw datasets are stored under:
-
-```text
-data/raw/main/
-```
-
-Processed data can be regenerated using:
-
 ```bash
 python analysis/analyze_protocol_benchmark.py
-```
-
-Protocol figures:
-
-```bash
 python analysis/plot_protocol_benchmark.py
-```
-
-Bottleneck and chronological heap figures:
-
-```bash
 python analysis/plot_bottleneck_heap.py
-```
-
-Raspberry Pi resource figures:
-
-```bash
 python analysis/plot_pi_resources.py
-```
-
-Light Switch E2E figures:
-
-```bash
 python analysis/plot_light_e2e.py
 ```
 
-The raw CSV files are treated as the source of truth.
+Raw CSV files are treated as the source of truth.
 
 ---
 
-## Experimental Data Policy
-
-The repository intentionally preserves different classes of data:
+## Data Policy
 
 ```text
 main
-       Final datasets used for analysis
+→ final datasets used for analysis
 
 diagnostic
-       Dry runs and hypothesis-testing experiments
+→ dry runs and diagnostic experiments
 
 excluded
-       Measurements intentionally excluded because
-       experimental conditions were not valid or verifiable
+→ measurements excluded because the experimental
+   condition was invalid or could not be verified
 
 legacy
-       Historical measurements from earlier development stages
+→ historical development-stage measurements
 ```
 
-For example:
-
-- The attempted HTTP Keep-Alive experiment is preserved but excluded because the ESP32 server returned `Connection: close`.
-- One Wi-Fi Sleep experiment is preserved but excluded because the firmware condition could not be verified.
-- Preliminary Raspberry Pi resource measurements are retained separately from the corrected final measurement.
-
-This prevents rejected data from being silently deleted and makes the analysis process traceable.
+Rejected or invalid measurements are preserved with their exclusion reason instead of being silently deleted.
 
 ---
 
 ## Limitations
 
-This project has several limitations.
-
-- The protocol benchmark was performed on one local Wi-Fi environment.
-- No artificial packet-loss or congestion environment was introduced.
-- All final protocol requests succeeded, so reliability differences between MQTT QoS levels were not experimentally demonstrated through packet loss.
-- The ESP32 and Raspberry Pi do not share a synchronized clock, so timestamps from different devices are not directly subtracted.
-- `Application RTT - ESP32 Processing` is not treated as pure network latency.
-- The End-to-End experiment measures application request completion around the actuator sequence rather than a sensor-detected physical contact timestamp.
-- Heap results only support conclusions within the measured workload duration.
-- The Raspberry Pi resource benchmark used a sequential 0.2 s request workload and does not represent maximum throughput.
+- Measurements were performed in one local Wi-Fi environment.
+- Artificial packet loss and network congestion were not introduced.
+- All final protocol requests succeeded, so QoS reliability differences under packet loss were not experimentally demonstrated.
+- Raspberry Pi and ESP32 do not share a synchronized clock, so absolute timestamps from different devices are not directly subtracted.
+- `RTT - ESP Processing` is not treated as pure network latency.
+- Light E2E is based on application request completion, not an external sensor timestamp of physical switch contact.
+- Heap conclusions are limited to the measured workload.
+- The Raspberry Pi resource experiment used a sequential 0.2 s request workload and is not a maximum-throughput test.
 
 ---
 
@@ -733,24 +584,22 @@ Going forward, I would like to study operating systems, memory systems, and comp
 
 ## Project Direction
 
-The main goal of this project is not simply to remotely move a servo.
+The goal of this project is not only to move a servo remotely.
 
-It is to build a working edge IoT system and then identify **where latency, resource cost, and reliability problems actually occur across the system stack**.
-
-The final experiments showed that different bottlenecks dominate at different layers:
+It is to build a working edge IoT system and then identify **where latency and reliability problems actually occur across the system stack**.
 
 ```text
 Communication Layer
-→ Protocol and Wi-Fi configuration
+→ Protocol / Wi-Fi Configuration
 
 Embedded Runtime
-→ ESP32 processing and heap behavior
+→ ESP32 Processing / Heap
 
 Edge Host
-→ Raspberry Pi and broker resource usage
+→ Raspberry Pi / Mosquitto Resource
 
 Physical Layer
-→ Actuator delay, mounting, and calibration
+→ Actuator Delay / Mounting / Calibration
 ```
 
-This layered analysis is the main engineering result of the project.
+The main value of this project is the process of moving from functional implementation to measurement, diagnosis, and bottleneck analysis.
