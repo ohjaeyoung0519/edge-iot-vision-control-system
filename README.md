@@ -1,538 +1,765 @@
 # Edge IoT Vision & Control System
 
-## Overview
+Raspberry Pi 5 and ESP32 based edge IoT control system with physical device actuation, state verification, protocol benchmarking, resource measurement, and bottleneck analysis.
 
-This project implements a Raspberry Pi 5 and ESP32 based edge IoT control system.
+The project began as a practical remote-control system and was later extended into a systems-oriented experiment that separates:
 
-The Raspberry Pi 5 acts as a central edge control server, while ESP32 boards operate as wireless hardware control nodes for physical switch control, sensor-based state verification, local button input, and future IR-based device control.
+- Communication latency
+- ESP32 application processing
+- Raspberry Pi resource usage
+- ESP32 heap behavior
+- Physical actuation latency
+- Physical control reliability
 
-The goal of this project is not only to build a working IoT device, but also to analyze communication latency, control reliability, ESP32 memory usage, servo motor behavior, and hardware power stability in an embedded edge system.
+The current implemented scope focuses on the **Light Switch Node** and **PC Power Node**.
 
-The current prototype includes a Raspberry Pi Flask dashboard, an ESP32 Light Switch Node, and an ESP32 PC Power Node. The system demonstrates browser-based remote control, physical servo actuation, LDR-based state sensing, ping-based PC status checking, and safety logic for conditional control.
+---
 
-## Project Goals
+## Key Results
 
-- Build a Raspberry Pi 5 based central control server
-- Implement ESP32 based wireless hardware control nodes
-- Control physical switches using servo motors
-- Support remote control through Raspberry Pi
-- Support local hardware input using tact switches
-- Measure Raspberry Pi to ESP32 communication latency
-- Monitor ESP32 free heap during repeated operation
-- Test external 5V power for servo motor control
-- Measure servo motor surface temperature during repeated actuation
-- Use an LDR sensor for basic state verification
-- Implement PC power state verification using LDR and ping
-- Prevent unsafe repeated PC power button presses using software lock logic
-- Extend the system with IR communication
-- Reserve camera-based state recognition as a future extension
+### Protocol Benchmark
+
+All final protocol measurements were performed with:
+
+- ESP32 Wi-Fi Sleep: **OFF**
+- 50 warm-up requests per protocol
+- 200 requests × 5 runs
+- 1000 measured requests per protocol
+- 3000 total measured requests
+- Sequential request / response
+- Interleaved protocol order across runs
+
+All **3000 / 3000 requests succeeded**.
+
+| Protocol | Mean RTT | Median | P95 | P99 | Success |
+|---|---:|---:|---:|---:|---:|
+| MQTT QoS0 | **15.319 ms** | 13.988 ms | 22.980 ms | 31.076 ms | 1000/1000 |
+| HTTP | **20.515 ms** | 19.450 ms | 28.807 ms | 37.038 ms | 1000/1000 |
+| MQTT QoS1 | **61.282 ms** | 59.508 ms | 79.849 ms | 94.444 ms | 1000/1000 |
+
+In this implementation and local Wi-Fi environment, MQTT QoS0 produced the lowest application-level RTT.
+
+MQTT QoS1 showed substantially higher RTT than QoS0, reflecting the additional protocol-level reliability path under this implementation.
+
+These measurements are **application-level RTT values**, not pure network propagation latency.
+
+![Latency Percentiles](data/figures/latency_percentiles.png)
+
+---
 
 ## System Architecture
 
-### Current Implemented Architecture
+```mermaid
+flowchart TD
+    U[User / Web Dashboard]
 
-```text
-Phone / MacBook / Web Browser
-        |
-        v
-Raspberry Pi 5
-Flask Dashboard Server
-        |
-   Wi-Fi / HTTP
-        |
-        |----------------------|
-        v                      v
-ESP32 Light Switch Node   ESP32 PC Power Node
-        |                      |
-        |-- Servo Motor        |-- Servo Motor
-        |   -> Wall Switch     |   -> PC Power Button
-                               |
-                               |-- LDR Sensor
-                               |   -> PC Power LED Check
+    PI[Raspberry Pi 5<br/>Edge Control Server]
+    F[Flask Application]
+    M[Mosquitto MQTT Broker]
 
-Raspberry Pi also checks the PC network state using ping.
+    ESP1[ESP32 Light Switch Node]
+    ESP2[ESP32 PC Power Node]
+
+    S1[MG996R Servo]
+    S2[Servo + LDR Sensor]
+
+    L[Physical Light Switch]
+    P[Physical PC Power Button / LED]
+
+    U --> PI
+    PI --> F
+
+    F -->|HTTP| ESP1
+    F -->|HTTP| ESP2
+
+    F --> M
+    M -->|MQTT| ESP1
+
+    ESP1 --> S1
+    S1 --> L
+
+    ESP2 --> S2
+    S2 --> P
 ```
 
-The current system includes two ESP32 hardware control nodes.
+The Raspberry Pi acts as the central edge controller.
 
-The Raspberry Pi Flask dashboard integrates both nodes into a single browser-based control interface.
+The ESP32 boards act as wireless hardware nodes that interface with physical devices.
 
-### Target Architecture
+---
 
-```text
-Phone / Web Browser
-        |
-        v
-Raspberry Pi 5 Edge Control Server
-        |
-   Wi-Fi / HTTP or MQTT
-        |
-        |----------------------|----------------------|
-        v                      v                      v
-ESP32 Light Switch Node   ESP32 PC Power Node   ESP32 IR Node
-        |                      |                      |
-        |-- Servo Motor        |-- Servo Motor        |-- IR Receiver
-        |   -> Wall Switch     |   -> PC Button       |-- IR LED
-                               |
-                               |-- LDR Sensor
-                               |   -> PC LED Check
-                               |
-                               |-- Tact Switch
-```
+## Implemented Nodes
 
-### Future Camera Extension
+### Light Switch Node
+
+The Light Switch Node physically presses a wall switch using a servo motor.
+
+Final control parameters:
 
 ```text
-Raspberry Pi 5
-        |
-        |-- Camera Module
-        |
-        v
-Device Display / Status LED / 7-Segment Recognition
+Servo              : MG996R
+
+REST angle         : 90°
+ON angle           : 50°
+OFF angle          : 140°
+
+Press hold         : 400 ms
+Return wait        : 600 ms
 ```
 
-The camera extension will be used to verify the actual state of a device after a command is sent, especially for one-way IR control scenarios.
+Supported functions include:
 
-The camera feature is not part of the current main implementation and is treated as future work.
+- HTTP Light ON
+- HTTP Light OFF
+- Local hardware buttons
+- HTTP benchmark endpoint
+- MQTT benchmark command / ACK
+- ESP32 heap measurement
+- RSSI measurement
 
-## Hardware
+---
 
-| Component | Role |
-|---|---|
-| Raspberry Pi 5 8GB | Central edge server |
-| ESP32-DEVKITC-32E | Wireless hardware control node |
-| SG90 Servo Motor | Lightweight physical switch control |
-| MG90S Servo Motor | Physical switch and PC button control test |
-| Higher Torque Servo Motor | Planned replacement for wall light switch control |
-| LDR Sensor Module | Analog light sensing and state checking |
-| IR Receiver Module 38kHz | IR signal receiving |
-| IR LED 940nm | IR signal transmission |
-| 2N2222A NPN Transistor | IR LED driving circuit |
-| 5V 5A External Power Adapter | External servo power supply |
-| DC Jack Terminal | External power input connection |
-| WAGO Connectors | Power distribution |
-| Red / Black Power Wires | 5V and GND wiring |
-| Wire Stripper | Power wire preparation |
-| Tact Switch | Local button input |
-| Breadboard and Jumper Wires | Circuit prototyping |
-| Digital Multimeter | Voltage and continuity measurement |
-| Infrared Thermometer | Servo motor surface temperature measurement |
-| Raspberry Pi Camera Module | Future camera-based state recognition |
+### PC Power Node
+
+The PC Power Node combines two state signals:
+
+```text
+Network Ping
++
+LDR measurement of the physical PC power LED
+```
+
+The PC is considered ON when either:
+
+- Ping succeeds, or
+- The power LED is detected as ON
+
+Power-button actuation is permitted only when both indicate an OFF state.
+
+This prevents unnecessary physical power-button presses when the PC is already running.
+
+The LDR uses:
+
+```text
+20 samples
+5 ms interval per sample
+≈ 100 ms programmed sampling delay
+```
+
+The PC power servo sequence includes approximately:
+
+```text
+Initial REST wait
++ Press hold
++ Return wait
+≈ 1950 ms programmed actuator sequence
+```
+
+---
+
+## Protocol Benchmark Design
+
+The final protocol benchmark compared:
+
+```text
+HTTP
+MQTT QoS0
+MQTT QoS1
+```
+
+The benchmark endpoint intentionally excludes:
+
+- Servo movement
+- LDR sampling
+- Ping
+- Physical device actuation
+- Intentional actuator delays
+
+This makes the protocol benchmark primarily a **communication and application-response experiment**.
+
+### Run Structure
+
+```text
+Run 1: HTTP      -> MQTT QoS0 -> MQTT QoS1
+Run 2: MQTT QoS0 -> MQTT QoS1 -> HTTP
+Run 3: MQTT QoS1 -> HTTP      -> MQTT QoS0
+Run 4: HTTP      -> MQTT QoS1 -> MQTT QoS0
+Run 5: MQTT QoS1 -> MQTT QoS0 -> HTTP
+```
+
+Each protocol was measured:
+
+```text
+200 requests × 5 runs = 1000 samples
+```
+
+Interleaving the protocol order reduces the effect of a fixed protocol execution order on the final comparison.
+
+![Per Run Mean Latency](data/figures/per_run_mean_latency.png)
+
+---
+
+## Latency Distribution
+
+The distribution results remained clearly separated across the three protocol conditions.
+
+MQTT QoS0 produced the lowest typical latency.
+
+HTTP followed at approximately 20 ms mean RTT.
+
+MQTT QoS1 remained near 60 ms for most requests and also showed a larger tail.
+
+![Latency Boxplot](data/figures/latency_boxplot.png)
+
+Request-by-request behavior can also be seen below.
+
+![Latency Sequence](data/figures/latency_sequence.png)
+
+---
+
+## ESP32 Processing Time
+
+The ESP32 benchmark handler measured its internal processing time separately.
+
+| Protocol | Mean ESP32 Processing |
+|---|---:|
+| HTTP | **401.999 µs** |
+| MQTT QoS0 | **419.632 µs** |
+| MQTT QoS1 | **420.765 µs** |
+
+The three values are all approximately **0.4 ms**.
+
+This is much smaller than the measured application RTT:
+
+```text
+HTTP       : 20.515 ms
+MQTT QoS0  : 15.319 ms
+MQTT QoS1  : 61.282 ms
+```
+
+Therefore, the protocol-dependent RTT difference was not dominated by the measured ESP32 benchmark-handler computation.
+
+![ESP Processing](data/figures/esp_processing_mean.png)
+
+---
+
+## Communication Bottleneck Breakdown
+
+For analysis:
+
+```text
+Host / Network / Protocol Remainder
+=
+Application RTT
+-
+Measured ESP32 Handler Processing
+```
+
+Mean values:
+
+| Protocol | Application RTT | ESP32 Processing | Remainder |
+|---|---:|---:|---:|
+| HTTP | 20.515 ms | 0.402 ms | 20.113 ms |
+| MQTT QoS0 | 15.319 ms | 0.420 ms | 14.900 ms |
+| MQTT QoS1 | 61.282 ms | 0.421 ms | 60.862 ms |
+
+The remainder includes multiple components such as:
+
+- Host-side processing
+- Wi-Fi communication
+- TCP / MQTT protocol handling
+- Broker handling
+- Response generation
+- Response reception
+
+It must **not** be interpreted as pure network latency.
+
+![Latency Breakdown](data/figures/latency_breakdown.png)
+
+---
+
+## Wi-Fi Power-Saving Diagnostic
+
+During early MQTT testing, many requests unexpectedly showed RTT values near 100 ms.
+
+A controlled comparison of the ESP32 Wi-Fi power-saving configuration was performed.
+
+With Wi-Fi Sleep enabled, a confirmed MQTT QoS0 dry run produced:
+
+```text
+Mean RTT ≈ 121.279 ms
+```
+
+After disabling Wi-Fi Sleep:
+
+```cpp
+WiFi.setSleep(false);
+```
+
+a confirmed 30-request run produced:
+
+```text
+Mean RTT ≈ 15.886 ms
+```
+
+The final 1000-request MQTT QoS0 benchmark reproduced the lower latency:
+
+```text
+Mean RTT = 15.319 ms
+```
+
+This showed that the ESP32 Wi-Fi power-saving configuration was a major latency factor in this system.
+
+All final protocol comparisons therefore used:
+
+```text
+Wi-Fi Sleep = OFF
+```
+
+---
+
+## ESP32 Heap Behavior
+
+Each benchmark request also recorded:
+
+- Free Heap
+- Minimum Free Heap
+- Maximum Allocatable Heap
+- RSSI
+
+The complete protocol dataset was reconstructed in chronological measurement order.
+
+Free heap moved between several runtime levels, but no continuous downward trend was observed across the 3000-request experiment.
+
+Therefore, the result is stated conservatively as:
+
+> No cumulative free-heap decrease was observed within the scope of the benchmark.
+
+This does not prove that memory leaks are impossible under every runtime condition.
+
+![ESP32 Free Heap](data/figures/free_heap_chronological.png)
+
+---
+
+## Raspberry Pi Resource Usage
+
+Raspberry Pi resource usage was measured separately using `psutil`.
+
+Each protocol used:
+
+```text
+200 requests × 3 runs
+0.2 s request interval
+0.2 s resource sampling interval
+```
+
+The protocol order was interleaved across runs.
+
+### CPU
+
+| Protocol | Python Worker CPU | Mosquitto CPU |
+|---|---:|---:|
+| HTTP | 0.429% | 0.008% |
+| MQTT QoS0 | 0.397% | 0.037% |
+| MQTT QoS1 | 0.403% | 0.043% |
+
+![Pi CPU](data/figures/pi_resource_cpu.png)
+
+### Memory
+
+| Protocol | Python Worker RSS | Mosquitto RSS |
+|---|---:|---:|
+| HTTP | 23.165 MiB | 8.406 MiB |
+| MQTT QoS0 | 23.371 MiB | 8.406 MiB |
+| MQTT QoS1 | 23.389 MiB | 8.406 MiB |
+
+![Pi Memory](data/figures/pi_resource_rss.png)
+
+Under the tested sequential 0.2 s workload, all protocol conditions produced low Raspberry Pi resource usage.
+
+The MQTT broker introduced measurable CPU activity compared with its HTTP idle state, but the absolute broker CPU usage remained small.
+
+CPU percentages represent average usage during the complete workload and should not be interpreted as per-request CPU cost.
+
+---
+
+## Physical End-to-End Latency
+
+The protocol benchmark intentionally removed physical actuator delays.
+
+A separate experiment measured the actual Light Switch ON/OFF path.
+
+```text
+ON  : 10 measurements
+OFF : 10 measurements
+Total: 20 measurements
+```
+
+Results:
+
+| Metric | Value |
+|---|---:|
+| ON Mean | 1032.498 ms |
+| OFF Mean | 1031.995 ms |
+| Overall Mean | **1032.247 ms** |
+| Overall Median | 1031.450 ms |
+| Minimum | 1028.087 ms |
+| Maximum | 1040.075 ms |
+
+The programmed actuator sequence contains:
+
+```text
+Press hold  : 400 ms
+Return wait : 600 ms
+
+Total programmed delay = 1000 ms
+```
+
+Therefore:
+
+```text
+Measured mean E2E
+= 1032.247 ms
+
+Programmed actuator delay
+= 1000 ms
+≈ 96.9%
+
+Non-programmed remainder
+≈ 32.247 ms
+≈ 3.1%
+```
+
+This demonstrates that the dominant user-visible latency in the physical Light Switch path is not the communication RTT.
+
+It is the intentionally programmed physical actuator sequence.
+
+![Light E2E Breakdown](data/figures/light_e2e_breakdown.png)
+
+ON and OFF showed almost identical latency distributions.
+
+![Light ON OFF E2E](data/figures/light_e2e_on_off.png)
+
+---
+
+## Physical Reliability Improvement
+
+The initial Light Switch prototype used an MG90S servo and achieved:
+
+```text
+7 / 20 successful actuations
+= 35%
+```
+
+The final system used an MG996R servo together with:
+
+- Stronger mechanical mounting
+- Control-angle calibration
+- 5° / 10° incremental adjustment during tuning
+
+Final reliability testing produced:
+
+```text
+ON  : 20 / 20
+OFF : 20 / 20
+
+Total
+40 / 40
+= 100%
+```
+
+The improvement should not be attributed to servo torque alone.
+
+The final result came from the combined improvement of:
+
+```text
+Actuator capability
++
+Mechanical mounting
++
+Control-angle calibration
+```
+
+A separate short-duration servo stress test also completed:
+
+```text
+Duration     : 10 minutes
+Cycles       : 172
+Temperature  : approximately 26.5°C -> 27.8°C
+Observed reset / failure: none
+```
+
+---
+
+## Main Findings
+
+The project produced several important observations.
+
+### 1. MQTT QoS0 produced the lowest application RTT
+
+Under the final controlled local Wi-Fi environment:
+
+```text
+MQTT QoS0  : 15.319 ms
+HTTP       : 20.515 ms
+MQTT QoS1  : 61.282 ms
+```
+
+The result should be interpreted as specific to this implementation and experimental environment rather than as a universal protocol ranking.
+
+### 2. ESP32 handler computation was not the dominant communication bottleneck
+
+All protocol conditions showed approximately:
+
+```text
+0.4 ms
+```
+
+of measured ESP32 benchmark-handler processing.
+
+Most of the measured RTT therefore remained outside that interval.
+
+### 3. Wi-Fi power saving strongly affected latency
+
+Disabling ESP32 Wi-Fi Sleep reduced MQTT QoS0 latency from approximately 100 ms scale behavior to approximately 15 ms mean RTT.
+
+### 4. Raspberry Pi resource usage remained low
+
+The Raspberry Pi 5 handled all three protocol workloads with low average CPU usage and similar worker RSS.
+
+### 5. Physical actuation dominated user-visible latency
+
+The actual Light Switch E2E latency was:
+
+```text
+1032.247 ms
+```
+
+and approximately:
+
+```text
+96.9%
+```
+
+of that value came from the programmed actuator delay.
+
+### 6. Physical reliability required hardware and mechanical improvements
+
+Reliable control depended not only on communication software but also on:
+
+- Actuator selection
+- Mechanical installation
+- Control-angle calibration
+
+The final configuration improved from:
+
+```text
+35% -> 100%
+```
+
+measured actuation success.
+
+---
 
 ## Repository Structure
 
 ```text
-docs/
-├── experiment_log.md
-├── hardware_list.md
-└── project_plan.md
-
-raspberry-pi/
-├── scripts/
-└── server/
-    ├── app.py
-    ├── measure_esp32_latency.py
-    ├── requirements.txt
-    └── archive/
-
-esp32/
-├── board_info_test/
-├── wifi_test/
-├── http_server_test/
-├── servo_measurement_test/
-├── ldr_raw_value_test/
-├── ldr_threshold_test/
-├── servo_ldr_measurement_test/
-├── button_test/
-├── light_switch_node/
-├── pc_power_node/
-├── ir_node/
-└── servo_node/
-
-data/
-├── raw/
-│   ├── esp32_latency_rpi_to_esp32_100.csv
-│   └── servo_ldr_measurement_10min_raw_log.txt
+.
+├── analysis/
+│   ├── analyze_protocol_benchmark.py
+│   ├── plot_protocol_benchmark.py
+│   ├── plot_bottleneck_heap.py
+│   ├── plot_pi_resources.py
+│   └── plot_light_e2e.py
 │
-└── processed/
-    ├── esp32_latency_rpi_to_esp32_summary.csv
-    ├── servo_ldr_measurement_10min_clean.csv
-    ├── servo_ldr_measurement_summary.csv
-    └── mg90s_temperature_summary.csv
-
-images/
-├── architecture/
-├── hardware/
-├── results/
-├── issues/
-└── wiring/
-
-report/
-└── figures/
+├── data/
+│   ├── README.md
+│   ├── raw/
+│   │   ├── main/
+│   │   ├── diagnostic/
+│   │   ├── excluded/
+│   │   └── legacy/
+│   ├── processed/
+│   └── figures/
+│
+├── esp32/
+│   ├── light_switch_node/
+│   ├── mqtt_connection_test/
+│   └── ...
+│
+├── raspberry-pi/
+│   └── server/
+│       ├── benchmarks/
+│       ├── resource_worker.py
+│       ├── measure_pi_resources.py
+│       ├── measure_light_e2e.py
+│       └── ...
+│
+├── docs/
+├── images/
+├── report/
+└── README.md
 ```
 
-## Current Status
+For a detailed description of the measurement datasets:
 
-- [x] Prepare project repository structure
-- [x] Prepare hardware components
-- [x] Assemble Raspberry Pi 5 case and active cooler
-- [x] Install Raspberry Pi OS 64-bit
-- [x] Enable Wi-Fi and SSH access
-- [x] Verify headless SSH access from MacBook
-- [x] Update Raspberry Pi system packages
-- [x] Check Raspberry Pi temperature and throttling status
-- [x] Clone GitHub repository on Raspberry Pi
-- [x] Run a Flask-based test server on Raspberry Pi
-- [x] Access Raspberry Pi server from MacBook browser
-- [x] Set up ESP32 development environment
-- [x] Verify ESP32 board information
-- [x] Connect ESP32 to Wi-Fi
-- [x] Run ESP32 HTTP server test
-- [x] Connect Raspberry Pi server to ESP32 node
-- [x] Measure Raspberry Pi to ESP32 communication latency
-- [x] Control MG90S servo motor with ESP32
-- [x] Test external 5V servo power with common GND
-- [x] Test LDR sensor raw analog values
-- [x] Measure MG90S servo motor temperature during repeated operation
-- [x] Integrate Wi-Fi, HTTP, servo, and LDR code into ESP32 nodes
-- [x] Implement ESP32 Light Switch Node
-- [x] Implement ESP32 PC Power Node
-- [x] Implement remote servo actuation through Raspberry Pi
-- [x] Test PC power LED detection using LDR sensor
-- [x] Integrate Light Switch Node and PC Power Node into Raspberry Pi dashboard
-- [x] Add PC power button safety lock based on ping and LDR state verification
-- [x] Identify MG90S torque limitation for wall light switch OFF direction
-- [ ] Replace Light Switch Node servo with a higher-torque servo motor
-- [ ] Test local button input
-- [ ] Test external power stability using a digital multimeter
-- [ ] Test IR communication
-- [ ] Write final report
-- [ ] Test camera-based state recognition as future work
+[Experiment Data Documentation](data/README.md)
 
-## Implemented Features
+---
 
-### Raspberry Pi Flask Server
+## Analysis Environment
 
-A Flask server was implemented to verify that the Raspberry Pi can operate as a central server on the local network.
-
-Initially implemented endpoints:
+Main analysis environment:
 
 ```text
-GET /
-GET /api/ping
-GET /api/light/toggle
-GET /api/esp32/ping
+Python      3.13.5
+pandas      3.0.5
+NumPy       2.5.2
+Matplotlib  3.11.1
+psutil      7.2.2
+paho-mqtt   2.1.0
 ```
 
-The Raspberry Pi server was successfully accessed from a MacBook browser through the Raspberry Pi local IP address and port `5000`.
-
-This confirmed the initial communication path:
+MQTT environment:
 
 ```text
-MacBook Browser -> Local Wi-Fi Network -> Raspberry Pi Flask Server
+Mosquitto Broker            2.0.21
+ESP32 MQTT Library          MQTT by Joel Gaehwiler 2.5.3
 ```
 
-### ESP32 HTTP Server
-
-ESP32 was configured as a Wi-Fi connected HTTP server.
-
-The ESP32 responded to `/api/ping` requests and returned status information such as device role, uptime, free heap, and RSSI.
-
-### Raspberry Pi to ESP32 Communication
-
-The Raspberry Pi successfully sent HTTP requests to the ESP32 over the local Wi-Fi network.
-
-This confirmed the control path:
+ESP32 development environment:
 
 ```text
-Raspberry Pi Flask Server -> Local Wi-Fi Network -> ESP32 HTTP Server
+Arduino IDE 2.3.10
+ESP32 Dev Module
+Serial Baud: 115200
 ```
 
-### Raspberry Pi Integrated Dashboard
+---
 
-The Raspberry Pi Flask server was extended into an integrated dashboard that controls multiple ESP32 nodes.
+## Reproducing the Analysis
 
-Implemented dashboard functions:
+The final protocol raw datasets are stored under:
 
 ```text
-Light Switch Node
-- Check node status
-- Turn light ON
-- Turn light OFF
-- Reset servo position
-
-PC Power Node
-- Check PC power state
-- Display ping result
-- Display LDR average value
-- Display LDR threshold
-- Enable PC power button only when the PC is detected as OFF_CANDIDATE
+data/raw/main/
 ```
 
-The dashboard confirms the current multi-node control path:
+Processed data can be regenerated using:
+
+```bash
+python analysis/analyze_protocol_benchmark.py
+```
+
+Protocol figures:
+
+```bash
+python analysis/plot_protocol_benchmark.py
+```
+
+Bottleneck and chronological heap figures:
+
+```bash
+python analysis/plot_bottleneck_heap.py
+```
+
+Raspberry Pi resource figures:
+
+```bash
+python analysis/plot_pi_resources.py
+```
+
+Light Switch E2E figures:
+
+```bash
+python analysis/plot_light_e2e.py
+```
+
+The raw CSV files are treated as the source of truth.
+
+---
+
+## Experimental Data Policy
+
+The repository intentionally preserves different classes of data:
 
 ```text
-Web Browser
-        |
-        v
-Raspberry Pi Flask Dashboard
-        |
-        |-- ESP32 Light Switch Node
-        |
-        |-- ESP32 PC Power Node
+main
+       Final datasets used for analysis
+
+diagnostic
+       Dry runs and hypothesis-testing experiments
+
+excluded
+       Measurements intentionally excluded because
+       experimental conditions were not valid or verifiable
+
+legacy
+       Historical measurements from earlier development stages
 ```
 
-### ESP32 Light Switch Node
+For example:
 
-The Light Switch Node uses an ESP32 and an MG90S servo motor to physically control a wall-mounted light switch.
+- The attempted HTTP Keep-Alive experiment is preserved but excluded because the ESP32 server returned `Connection: close`.
+- One Wi-Fi Sleep experiment is preserved but excluded because the firmware condition could not be verified.
+- Preliminary Raspberry Pi resource measurements are retained separately from the corrected final measurement.
 
-Implemented endpoints:
+This prevents rejected data from being silently deleted and makes the analysis process traceable.
+
+---
+
+## Limitations
+
+This project has several limitations.
+
+- The protocol benchmark was performed on one local Wi-Fi environment.
+- No artificial packet-loss or congestion environment was introduced.
+- All final protocol requests succeeded, so reliability differences between MQTT QoS levels were not experimentally demonstrated through packet loss.
+- The ESP32 and Raspberry Pi do not share a synchronized clock, so timestamps from different devices are not directly subtracted.
+- `Application RTT - ESP32 Processing` is not treated as pure network latency.
+- The End-to-End experiment measures application request completion around the actuator sequence rather than a sensor-detected physical contact timestamp.
+- Heap results only support conclusions within the measured workload duration.
+- The Raspberry Pi resource benchmark used a sequential 0.2 s request workload and does not represent maximum throughput.
+
+---
+
+## Future Work
+
+Possible extensions include:
+
+- Camera-based 7-segment display recognition
+- Vision-assisted physical device state verification
+- IR-based appliance control
+- MQTT-based production control path
+- Longer-duration stability experiments
+- Packet-loss and network-congestion experiments
+- Higher request-rate throughput testing
+- More detailed host / network / protocol timing instrumentation
+- Automated physical-state verification
+- Edge AI acceleration experiments
+
+---
+
+## Project Direction
+
+The main goal of this project is not simply to remotely move a servo.
+
+It is to build a working edge IoT system and then identify **where latency, resource cost, and reliability problems actually occur across the system stack**.
+
+The final experiments showed that different bottlenecks dominate at different layers:
 
 ```text
-GET /
-GET /api/ping
-GET /api/status
-GET /api/light/on
-GET /api/light/off
-GET /api/servo/rest
+Communication Layer
+→ Protocol and Wi-Fi configuration
+
+Embedded Runtime
+→ ESP32 processing and heap behavior
+
+Edge Host
+→ Raspberry Pi and broker resource usage
+
+Physical Layer
+→ Actuator delay, mounting, and calibration
 ```
 
-The Light Switch Node successfully responded to both its own web UI and the Raspberry Pi dashboard.
-
-The ON direction worked relatively well, but the OFF direction was unstable because the wall switch required more mechanical force than the MG90S servo could reliably provide.
-
-### ESP32 PC Power Node
-
-The PC Power Node uses an ESP32, an LDR sensor, and a servo motor to detect PC power state and physically press the PC power button.
-
-Implemented endpoints:
-
-```text
-GET /
-GET /api/ping
-GET /api/status
-GET /api/ldr
-GET /api/pc/status
-GET /api/pc/power/press
-GET /api/servo/init
-GET /api/servo/rest
-```
-
-The LDR sensor detects the PC power LED state, while the Raspberry Pi also checks the PC network state using ping.
-
-The PC power button is locked when the PC is already detected as ON, preventing accidental power button presses.
-
-## Measurement Results
-
-### Raspberry Pi to ESP32 Latency Test
-
-Raspberry Pi sent 100 repeated HTTP requests to the ESP32 `/api/ping` endpoint.
-
-| Metric | Value |
-|---|---:|
-| Total requests | 100 |
-| Successful requests | 100 |
-| Failed requests | 0 |
-| Success rate | 100% |
-| Minimum latency | 82.42 ms |
-| Maximum latency | 126.07 ms |
-| Average latency | 114.017 ms |
-| Median latency | 114.56 ms |
-
-Raw and processed data:
-
-```text
-data/raw/esp32_latency_rpi_to_esp32_100.csv
-data/processed/esp32_latency_rpi_to_esp32_summary.csv
-```
-
-### MG90S Servo Motor Stability Test
-
-A 10-minute repeated actuation test was performed using an ESP32 and an MG90S servo motor powered by an external 5V supply.
-
-The servo motor was controlled through GPIO18, while an LDR sensor was connected to GPIO34 for analog light sensing.
-
-| Metric | Value |
-|---|---:|
-| Test duration | 10 minutes |
-| Total servo actuation trials | 172 |
-| Servo control pin | GPIO18 |
-| LDR analog input pin | GPIO34 |
-| Initial free heap | 330252 bytes |
-| Final free heap | 329648 bytes |
-| Heap difference during each trial | 0 bytes |
-| Temperature before test | 26.5°C |
-| Temperature after 5 minutes | 27.6°C |
-| Temperature after 10 minutes | 27.8°C |
-| Temperature increase after 10 minutes | +1.3°C |
-
-No ESP32 reset, servo failure, or overheating was observed during the test.
-
-Raw and processed data:
-
-```text
-data/raw/servo_ldr_measurement_10min_raw_log.txt
-data/processed/servo_ldr_measurement_10min_clean.csv
-data/processed/servo_ldr_measurement_summary.csv
-data/processed/mg90s_temperature_summary.csv
-```
-
-### PC Power LED Detection Test
-
-The PC Power Node uses an LDR sensor to detect the PC power LED state.
-
-Observed LDR values:
-
-| PC State | LDR Value |
-|---|---:|
-| PC ON | approximately 57 to 2905 |
-| PC OFF | approximately 4095 |
-
-The initial threshold was set to 3000.
-
-However, because the PC ON state sometimes produced values close to 2905, the threshold was updated to 3500 for better stability.
-
-Decision rule:
-
-```text
-LDR average < 3500  -> PC LED ON
-LDR average >= 3500 -> PC LED OFF
-```
-
-The Raspberry Pi also checks the PC using ping.
-
-Final PC state decision rule:
-
-```text
-ping success OR LDR LED ON -> PC ON
-ping failed AND LDR LED OFF -> OFF_CANDIDATE
-```
-
-When the PC is detected as ON, the dashboard disables the PC power button.
-
-### Light Switch Control Test
-
-The Light Switch Node was tested on a real wall-mounted light switch using an MG90S servo motor.
-
-| Metric | Value |
-|---|---:|
-| Servo motor | MG90S |
-| Control target | Wall light switch |
-| Initial repeated success | 7 trials |
-| Failure started | 8th trial |
-| Final success rate | 35.0% |
-
-The ON direction worked relatively well.
-
-However, the OFF direction was unstable because the physical switch required more torque than the MG90S servo could reliably provide.
-
-This result shows that the failure was not caused by software or HTTP communication errors, but by the mechanical limitation of the actuator and mounting structure.
-
-## Experiment Images
-
-Representative hardware setup and result images are stored in:
-
-```text
-images/hardware/
-images/results/
-images/issues/
-images/wiring/
-```
-
-### Prototype Hardware Setup
-
-```text
-images/hardware/servo_ldr_measurement_setup.jpg
-images/hardware/pc_power_node_servo_ldr_mount.jpg
-images/hardware/light_switch_node_servo_mount.jpg
-images/wiring/raspberry_pi_and_servo_power_wiring.jpg
-```
-
-### Measurement Result Images
-
-```text
-images/results/mg90s_temperature_before.jpg
-images/results/mg90s_temperature_5min.jpg
-images/results/mg90s_temperature_10min.jpg
-images/results/servo_ldr_measurement_serial_monitor.png
-images/results/rpi_to_esp32_latency_100_requests.png
-```
-
-### Web UI and Dashboard Screenshots
-
-```text
-images/results/light_switch_node_web_ui.png
-images/results/pc_power_node_web_ui_off_state.png
-images/results/integrated_dashboard_light_node_online.png
-images/results/integrated_dashboard_pc_off_candidate.png
-```
-
-Example prototype setup:
-
-![PC Power Node](images/hardware/pc_power_node_servo_ldr_mount.jpg)
-
-![Light Switch Node](images/hardware/light_switch_node_servo_mount.jpg)
-
-![Raspberry Pi Wiring](images/wiring/raspberry_pi_and_servo_power_wiring.jpg)
-
-Example dashboard screenshots:
-
-![Light Switch Node Web UI](images/results/light_switch_node_web_ui.png)
-
-![PC Power Node Web UI](images/results/pc_power_node_web_ui_off_state.png)
-
-![Integrated Dashboard Light Node](images/results/integrated_dashboard_light_node_online.png)
-
-![Integrated Dashboard PC OFF Candidate](images/results/integrated_dashboard_pc_off_candidate.png)
-
-## Planned Experiments
-
-1. Replace the Light Switch Node servo motor with a higher-torque servo
-2. Compare MG90S and higher-torque servo performance on the wall switch
-3. Test local tact switch input for hardware-level manual control
-4. Measure external 5V power stability using a digital multimeter
-5. Implement IR receiver test
-6. Implement IR transmitter test
-7. Add IR control card to the Raspberry Pi dashboard
-8. Compare HTTP-based control with MQTT-based control as an extension
-9. Reserve camera-based visual state recognition as future work
-
-## Development Log
-
-Detailed daily progress is recorded in:
-
-```text
-docs/experiment_log.md
-```
-
-The final report will be organized under:
-
-```text
-report/
-```
-
-## Next Steps
-
-The current core prototype is functional.
-
-The next hardware task is to replace the MG90S servo motor used in the Light Switch Node with a higher-torque servo motor. The current MG90S servo was able to control the ON direction of the wall switch, but it did not provide enough torque for stable OFF-direction control.
-
-After replacing the servo motor, the Light Switch Node will be tested again and compared with the previous MG90S result.
-
-The next functional extension is IR communication.
-
-Planned IR extension:
-
-```text
-Raspberry Pi Flask Dashboard
-        |
-        v
-ESP32 IR Node
-        |
-        |-- IR Receiver -> Learn remote control signal
-        |-- IR LED      -> Transmit learned signal
-```
-
-The Pi Camera extension is not included in the current main implementation.
-
-It will be treated as future work for visual state recognition, such as detecting device display values, 7-segment indicators, or status LEDs.
+This layered analysis is the main engineering result of the project.
