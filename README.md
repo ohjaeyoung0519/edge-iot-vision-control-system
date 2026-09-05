@@ -581,18 +581,11 @@ legacy
 
 ---
 
-## 향후 확장
+## 이후 관심 방향
 
-- Pi Camera 기반 7-Segment Display 인식
-- Camera 기반 Physical Device State Verification
-- IR 기반 Appliance Control
-- MQTT 기반 실제 Device Control Path 확장
-- 장시간 Stability Test
-- Packet Loss / Network Congestion 조건 실험
-- Higher Request Rate / Throughput 실험
-- 더 세분화된 Host / Network / Protocol Timing
-- Physical State Verification 자동화
-- Edge AI / Hardware Acceleration 실험
+이번 프로젝트를 통해 단순한 기능 구현보다, 실제 시스템에서 발생하는 latency와 resource usage를 측정하고 원인을 분석하는 과정에 흥미를 느꼈습니다.
+
+앞으로는 운영체제, 메모리 시스템, 컴퓨터 구조와 관련된 내용을 더 공부하면서 시스템 성능을 분석하는 경험을 확장하고 싶습니다.
 
 ---
 
