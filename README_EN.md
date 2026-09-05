@@ -723,20 +723,11 @@ This project has several limitations.
 
 ---
 
-## Future Work
+## Future Interests
 
-Possible extensions include:
+Through this project, I became more interested not only in implementing working features, but also in measuring latency and resource usage in real systems and analyzing the causes of performance differences.
 
-- Camera-based 7-segment display recognition
-- Vision-assisted physical device state verification
-- IR-based appliance control
-- MQTT-based production control path
-- Longer-duration stability experiments
-- Packet-loss and network-congestion experiments
-- Higher request-rate throughput testing
-- More detailed host / network / protocol timing instrumentation
-- Automated physical-state verification
-- Edge AI acceleration experiments
+Going forward, I would like to study operating systems, memory systems, and computer architecture in more depth, and further develop my experience in system performance analysis.
 
 ---
 
